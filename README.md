@@ -1,6 +1,6 @@
-# 🚀 CorsairAPI — Async OpenAPI-aware Recon & Payload Generator
+# 🚀 CorsairAPI - Async OpenAPI-aware Recon & Payload Generator
 
-> 🔎 Asynchronous API reconnaissance, OpenAPI/Swagger discovery and schema-driven payload generation — scoped, configurable, and export-ready for Burp/ZAP and automation pipelines.
+> 🔎 Asynchronous API reconnaissance, OpenAPI/Swagger discovery and schema-driven payload generation - scoped, configurable, and export-ready for Burp/ZAP and automation pipelines.
 
 ---
 
@@ -30,7 +30,7 @@
 
 ## Why
 
-APIs are large, versioned, and frequently only partially documented. Blind brute forcing creates noise and yields many irrelevant results. When available, OpenAPI is the canonical contract — it reveals exact paths, parameter types, required fields, and security schemes. CorsairAPI unites passive discovery, authoritative inventory, and async active probing to reach application logic faster with less noise.
+APIs are large, versioned, and frequently only partially documented. Blind brute forcing creates noise and yields many irrelevant results. When available, OpenAPI is the canonical contract - it reveals exact paths, parameter types, required fields, and security schemes. CorsairAPI unites passive discovery, authoritative inventory, and async active probing to reach application logic faster with less noise.
 
 ---
 
