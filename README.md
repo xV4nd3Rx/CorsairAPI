@@ -10,7 +10,7 @@
 - [Why](#why)  
 - [Features](#features)  
 - [Quick Start](#quick-start)  
-- [Basic Usage](#usage-examples)  
+- [Basic Usage](#basic-usage)  
 - [CLI Reference](#cli-reference)  
 - [Outputs & Artifacts](#outputs--artifacts)  
 - [How OpenAPI Support Works](#how-openapi-support-works)  
