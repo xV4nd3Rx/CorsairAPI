@@ -53,4 +53,58 @@ APIs are large, versioned, and frequently only partially documented. Blind brute
 Run a quick discovery (target passed with `-H`):
 
 ```bash
-python api_recon.py -H https://scantarget.com
+python CorsairAPI.py -H https://scantarget.com
+```
+Parse a known OpenAPI spec:
+
+```bash
+python CorsairAPI.py -H https://scantarget.com --openapi https://scantarget.com/api/openapi.json
+```
+
+Random User-Agent example:
+
+```bash
+python CorsairAPI.py -H https://scantarget.com --user-agent random
+```
+
+## Basic Usage
+
+Basic discovery:
+
+```bash
+python CorsairAPI.py -H https://scantarget.com
+```
+
+Stealth scan with custom wordlist:
+
+```bash
+python CorsairAPI.py -H https://scantarget.com --wordlist endpoints.txt --mode stealth
+```
+
+Scoped OpenAPI-driven generation + export:
+
+```bash
+python api_recon.py -H https://scantarget.com --prefix /api --openapi openapi.yaml
+```
+
+Large-depth caution (sampling instead of full expansion):
+
+```bash
+python api_recon.py -H https://scantarget.com --prefix /api --depth 4
+```
+
+# 🧭 CLI Reference
+
+```text
+-H, --target            Target host or URL (required), e.g. -H https://scantarget.com
+--wordlist, -w         Path to endpoints wordlist (one per line)
+--mode, -m             Mode: stealth | medium | aggressive (default: medium)
+--user-agent, -a       User-Agent string or "random"
+--probe-subdomains     Probe likely subdomains (ignored when --prefix is set)
+--subdomains-file      File with custom subdomains (one per line)
+--openapi              OpenAPI spec file path or URL (yaml/json)
+--no-auto-openapi      Disable auto parse of discovered OpenAPI specs
+--prefix               Scope prefix, e.g. /api (strict scope)
+--depth                Wordlist brute depth (default: 1)
+```
+
