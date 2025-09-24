@@ -17,8 +17,8 @@
 - [Wordlist Depth & Safety](#wordlist-depth--safety)  
 - [Scan Modes & Tuning](#scan-modes--tuning)  
 - [Integration Tips (Burp / Automation)](#integration-tips-burp--automation)  
-- [Contributing](#contributing)  
-- [License](#license)
+- [Contributing](#contributing)
+- [Contacts](#contacts)
 
 ---
 
@@ -109,23 +109,23 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 ```
 ## 📂 Outputs & Artifacts
 
-- 📝 **`results.json`** — full reconnaissance data (OpenAPI candidates, robots/sitemap entries, probed endpoints, subdomain results, etc.).  
-- 📊 **`results.csv`** — quick triage table with columns: `url`, `status`, `content_type`, `length`, `json_like`, `allow`.  
-- 📄 **`oas_endpoints.txt`** — endpoints (one per line: `METHOD URL`) extracted from parsed OpenAPI specs.  
-- 📦 **`oas_payloads.jsonl`** — generated requests (JSONL): objects containing `method`, `url`, `headers`, `body`, `negative_body`, `notes`.  
-- 📑 **`oas_burp.csv`** — simplified CSV for Burp/ZAP or pipeline import (columns: `method,url,headers,body`).
+- 📝 **`results.json`** - full reconnaissance data (OpenAPI candidates, robots/sitemap entries, probed endpoints, subdomain results, etc.).  
+- 📊 **`results.csv`** - quick triage table with columns: `url`, `status`, `content_type`, `length`, `json_like`, `allow`.  
+- 📄 **`oas_endpoints.txt`** - endpoints (one per line: `METHOD URL`) extracted from parsed OpenAPI specs.  
+- 📦 **`oas_payloads.jsonl`** - generated requests (JSONL): objects containing `method`, `url`, `headers`, `body`, `negative_body`, `notes`.  
+- 📑 **`oas_burp.csv`** - simplified CSV for Burp/ZAP or pipeline import (columns: `method,url,headers,body`).
 
 ---
 
 ## 📜 How OpenAPI Support Works
 
-1. **Discovery** — the tool looks for OpenAPI/Swagger specifications at typical locations (e.g. `/openapi.json`, `/swagger.json`, `/api-docs`) and scans HTML (Swagger UI links, script fetches) for spec references.  
-2. **Parsing** — it parses `servers`, `paths`, `parameters`, `requestBody`, and `components/securitySchemes` from discovered or provided specs (JSON or YAML).  
-3. **Generation** — from schemas it builds:
-   - **Baseline payloads** — minimal, valid objects that respect `required`, `type`, `format`, and `example`.  
-   - **Negative payloads** — mutated / invalid bodies (wrong types, empty arrays, invalid enum values) to exercise validation and logic.  
-4. **Auth placeholders** — when `security` is detected the tool inserts placeholders such as `Authorization: Bearer REPLACE_ME` or `X-API-Key: REPLACE_ME`.  
-5. **Export** — ready-to-replay artifacts are saved (`oas_payloads.jsonl`, `oas_burp.csv`, `oas_endpoints.txt`) for manual triage or automated pipelines.
+1. **Discovery** - the tool looks for OpenAPI/Swagger specifications at typical locations (e.g. `/openapi.json`, `/swagger.json`, `/api-docs`) and scans HTML (Swagger UI links, script fetches) for spec references.  
+2. **Parsing** - it parses `servers`, `paths`, `parameters`, `requestBody`, and `components/securitySchemes` from discovered or provided specs (JSON or YAML).  
+3. **Generation** - from schemas it builds:
+   - **Baseline payloads** - minimal, valid objects that respect `required`, `type`, `format`, and `example`.  
+   - **Negative payloads** - mutated / invalid bodies (wrong types, empty arrays, invalid enum values) to exercise validation and logic.  
+4. **Auth placeholders** - when `security` is detected the tool inserts placeholders such as `Authorization: Bearer REPLACE_ME` or `X-API-Key: REPLACE_ME`.  
+5. **Export** - ready-to-replay artifacts are saved (`oas_payloads.jsonl`, `oas_burp.csv`, `oas_endpoints.txt`) for manual triage or automated pipelines.
 
 ---
 
@@ -141,9 +141,9 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 
 ## 🎚 Scan Modes & Tuning
 
-- **stealth** — low concurrency, randomized delays; best for production-safe scanning.  
-- **medium** — balanced default for general recon.  
-- **aggressive** — high concurrency, minimal delays; intended for test/staging environments only.  
+- **stealth** - low concurrency, randomized delays; best for production-safe scanning.  
+- **medium** - balanced default for general recon.  
+- **aggressive** - high concurrency, minimal delays; intended for test/staging environments only.  
 
 Tune `--user-agent`, `--mode`, and `--depth` to fit scope and acceptable risk. Monitor for rate-limits (429) and server errors (5xx) and back off if necessary.
 
@@ -161,10 +161,15 @@ Tune `--user-agent`, `--mode`, and `--depth` to fit scope and acceptable risk. M
 ## 🤝 Contributing
 
 Contributions are welcome. Useful areas:
-- additional discovery heuristics and heuristics for non-standard spec locations,  
-- richer payload mutation strategies and smarter negative-case generation,  
-- Postman/Insomnia export, HAR export, or direct Burp plugin helpers,  
-- GraphQL introspection and query/mutation generation.  
+- Additional discovery heuristics and heuristics for non-standard spec locations; 
+- Richer payload mutation strategies and smarter negative-case generation;
+- Postman/Insomnia export, HAR export, or direct Burp plugin helpers;
+- GraphQL introspection and query/mutation generation.
 
 Fork the repo, create a feature branch, and open a pull request with tests or examples where applicable.
+
+## 📬 Contacts
+
+- [LinkedIn](https://www.linkedin.com/in/yurii-tsarienko-a1453aa4)
+- [SecForgeHub Telegram](https://t.me/SecForgeHub)
 
