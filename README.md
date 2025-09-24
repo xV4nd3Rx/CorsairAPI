@@ -129,7 +129,7 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 
 ---
 
-## 🔢 Wordlist Depth & Safety
+## Wordlist Depth & Safety
 
 - `--depth=1` (default): use single segments from the wordlist.  
 - `--depth ≥ 2`: generate deeper combinations (`w1/w2` for depth=2, etc.).  
@@ -139,7 +139,7 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 
 ---
 
-## 🎚 Scan Modes & Tuning
+## Scan Modes & Tuning
 
 - **stealth** - low concurrency, randomized delays; best for production-safe scanning.  
 - **medium** - balanced default for general recon.  
@@ -149,7 +149,7 @@ Tune `--user-agent`, `--mode`, and `--depth` to fit scope and acceptable risk. M
 
 ---
 
-## 🔗 Integration Tips (Burp / Automation)
+## Integration Tips (Burp / Automation)
 
 - **Burp / ZAP:** import `oas_burp.csv` (or replay via proxy) to populate Proxy → HTTP history, then send interesting requests to Repeater / Intruder / Scanner.  
 - **Scripted replay:** use `oas_payloads.jsonl` for programmatic replay (curl, Python, Go). Compare baseline vs negative responses to spot validation and logic issues.  
@@ -158,7 +158,7 @@ Tune `--user-agent`, `--mode`, and `--depth` to fit scope and acceptable risk. M
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome. Useful areas:
 - Additional discovery heuristics and heuristics for non-standard spec locations; 
@@ -168,8 +168,9 @@ Contributions are welcome. Useful areas:
 
 Fork the repo, create a feature branch, and open a pull request with tests or examples where applicable.
 
-## 📬 Contacts
+---
+
+## Contacts
 
 - [LinkedIn](https://www.linkedin.com/in/yurii-tsarienko-a1453aa4)
 - [SecForgeHub Telegram](https://t.me/SecForgeHub)
-
