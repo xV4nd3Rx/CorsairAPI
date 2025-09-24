@@ -107,7 +107,7 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 --prefix               Scope prefix, e.g. /api (strict scope)
 --depth                Wordlist brute depth (default: 1)
 ```
-## 📂 Outputs & Artifacts
+## Outputs & Artifacts
 
 - 📝 **`results.json`** - full reconnaissance data (OpenAPI candidates, robots/sitemap entries, probed endpoints, subdomain results, etc.).  
 - 📊 **`results.csv`** - quick triage table with columns: `url`, `status`, `content_type`, `length`, `json_like`, `allow`.  
@@ -117,7 +117,7 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 
 ---
 
-## 📜 How OpenAPI Support Works
+## How OpenAPI Support Works
 
 1. **Discovery** - the tool looks for OpenAPI/Swagger specifications at typical locations (e.g. `/openapi.json`, `/swagger.json`, `/api-docs`) and scans HTML (Swagger UI links, script fetches) for spec references.  
 2. **Parsing** - it parses `servers`, `paths`, `parameters`, `requestBody`, and `components/securitySchemes` from discovered or provided specs (JSON or YAML).  
