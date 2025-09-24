@@ -17,8 +17,8 @@
 - [Wordlist Depth & Safety](#wordlist-depth--safety)  
 - [Scan Modes & Tuning](#scan-modes--tuning)  
 - [Integration Tips (Burp / Automation)](#integration-tips-burp--automation)  
-- [Contributing](#contributing)
-- [Contacts](#contacts)
+- [Contributing](#contributing)  
+- [Contacts](#contacts)  
 
 ---
 
