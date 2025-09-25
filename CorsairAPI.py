@@ -734,9 +734,9 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
     depth_provided = _cli_flag_present(["--depth"])
 
     if not any((mode_provided, ua_provided, depth_provided)):
-        print("Setup your scan — interactive mode (press Enter to accept default where offered).")
+        print("Setup Your Scan - Interactive Mode (press Enter to accept default where offered).")
     else:
-        print("Setup your scan — interactive prompts for parameters not provided via CLI.")
+        print("Setup Your Scan - Interactive prompts for parameters not provided via CLI.")
 
     if not mode_provided:
         while True:
@@ -760,9 +760,9 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
     if not ua_provided:
         while True:
             print("\nUser-Agent selection:")
-            print("[1] default (APIRecon/1.0)")
-            print("[2] random")
-            print("[3] custom")
+            print("[1] Default (APIRecon/1.0)")
+            print("[2] Random")
+            print("[3] Custom")
             choice = input("Choose [1-3] (default 1): ").strip()
             if choice == "" or choice == "1":
                 args.user_agent = "APIRecon/1.0"; break
@@ -784,8 +784,8 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
         while True:
             print("\nDepth selection:")
             print("[1] 0 - No BruteForce")
-            print("[2] 1 - One level BruteForce (default)")
-            print("[3] custom (enter number)")
+            print("[2] 1 - One Level BruteForce (default)")
+            print("[3] Custom (enter number)")
             choice = input("Choose [1-3] (default 2): ").strip()
             if choice == "" or choice == "2":
                 args.depth = 1; break
@@ -814,9 +814,9 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
 
     print("\nConfiguration:")
     ua_display = args.user_agent if args.user_agent != "random" else "random (will pick one at runtime)"
-    print(f"  mode: {args.mode}")
-    print(f"  user-agent: {ua_display}")
-    print(f"  depth: {args.depth}\n")
+    print(f"  Mode: {args.mode}")
+    print(f"  User-Agent: {ua_display}")
+    print(f"  Depth: {args.depth}\n")
     return args
 
 def main():
