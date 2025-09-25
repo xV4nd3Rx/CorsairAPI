@@ -9,8 +9,8 @@
 - [About](#about)  
 - [Why](#why)  
 - [Features](#features)  
-- [Quick Start](#quick-start)  
-- [Basic Usage](#basic-usage)  
+- [Basic Usage](#basic-usage)
+- [Interactive Usage](#interactive-usage)
 - [CLI Reference](#cli-reference)  
 - [Outputs & Artifacts](#outputs--artifacts)  
 - [How OpenAPI Support Works](#how-openapi-support-works)  
@@ -48,32 +48,7 @@ APIs are large, versioned, and frequently only partially documented. Blind brute
 
 ---
 
-## Quick Start
-
-Run a quick discovery (target passed with `-H`):
-
-```bash
-python CorsairAPI.py -H https://scantarget.com
-```
-Parse a known OpenAPI spec:
-
-```bash
-python CorsairAPI.py -H https://scantarget.com --openapi https://scantarget.com/api/openapi.json
-```
-
-Random User-Agent example:
-
-```bash
-python CorsairAPI.py -H https://scantarget.com --user-agent random
-```
-
 ## Basic Usage
-
-Basic discovery:
-
-```bash
-python CorsairAPI.py -H https://scantarget.com
-```
 
 Stealth scan with custom wordlist:
 
@@ -93,6 +68,55 @@ Large-depth caution (sampling instead of full expansion):
 python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 ```
 
+---
+
+## Interactive Usage
+
+> If CLI flags are **not** provided and STDIN is a TTY, CorsairAPI launches a short wizard to collect the key parameters.  
+> CLI arguments always take precedence over interactive choices.
+
+### What it asks
+1. **Mode** — scan intensity  
+   - `[1] stealth` • `[2] medium (default)` • `[3] aggressive`
+2. **User-Agent** — request identity  
+   - `[1] default (APIRecon/1.0)` • `[2] random` • `[3] custom`
+3. **Depth** — wordlist bruteforce level  
+   - `[1] 0 — No BruteForce` • `[2] 1 — One level (default)` • `[3] custom`
+
+> **Note:** `depth=0` fully disables wordlist bruteforce. OpenAPI/Swagger auto-discovery, `robots.txt`/`sitemap.xml` parsing, and optional subdomain probing remain active.
+
+### Example (Interactive)
+```bash
+$ python3 CorsairAPI.py -H https://example.com
+Setup your scan — interactive mode (press Enter to accept default where offered).
+
+Select mode:
+[1] stealth
+[2] medium (default)
+[3] aggressive
+Choose [1-3] (default 2): 3
+
+User-Agent selection:
+[1] default (APIRecon/1.0)
+[2] random
+[3] custom
+Choose [1-3] (default 1): 2
+
+Depth selection:
+[1] 0 - No BruteForce
+[2] 1 - One level BruteForce (default)
+[3] custom (enter number)
+Choose [1-3] (default 2): 1
+
+Configuration:
+  mode: aggressive
+  user-agent: random (will pick one at runtime)
+  depth: 0
+
+```
+
+---
+
 # CLI Reference
 
 ```text
@@ -107,6 +131,9 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 --prefix               Scope prefix, e.g. /api (strict scope)
 --depth                Wordlist brute depth (default: 1)
 ```
+
+---
+
 ## Outputs & Artifacts
 
 - 📝 **`results.json`** - full reconnaissance data (OpenAPI candidates, robots/sitemap entries, probed endpoints, subdomain results, etc.).  
