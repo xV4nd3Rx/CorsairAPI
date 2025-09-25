@@ -262,13 +262,19 @@ async def check_single_endpoint(session: aiohttp.ClientSession, url: str, sem: a
     return None
 
 def expand_wordlist_paths(wordlist: List[str], depth: int, max_combinations: int = 100000) -> List[str]:
+    """
+    Behavior:
+      - depth <= 0 => return empty list (skip brute)
+      - depth == 1 => return base list
+      - depth > 1 => expand combinations
+    """
+    if depth <= 0:
+        return []
     base = [w.strip().strip("/") for w in wordlist if w and w.strip()]
     base = [b for b in base if b]
     if not base:
         return []
-    out = set()
-    for w in base:
-        out.add(w)
+    out = set(base)
     if depth <= 1:
         return sorted(out)
     total_added = len(out)
@@ -277,7 +283,7 @@ def expand_wordlist_paths(wordlist: List[str], depth: int, max_combinations: int
         if total_added + combos > max_combinations:
             allowed = max(0, max_combinations - total_added)
             if allowed <= 0:
-                print(f"[WARN] wordlist expansion stopped: reached max_combinations={max_combinations}. Consider reducing --depth or wordlist size.", file=sys.stderr)
+                print(f"[WARN] wordlist expansion stopped: reached max_combinations={max_combinations}.", file=sys.stderr)
                 break
             sampled = set()
             tries = 0
@@ -286,7 +292,7 @@ def expand_wordlist_paths(wordlist: List[str], depth: int, max_combinations: int
                 sampled.add("/".join(tup))
                 tries += 1
             out.update(sampled)
-            print(f"[WARN] wordlist expansion: full {combos} combos for depth={d} exceeds limit; sampled {len(sampled)} combinations (max_combinations={max_combinations}).", file=sys.stderr)
+            print(f"[WARN] wordlist expansion: sampled {len(sampled)} combinations (limit {max_combinations}).", file=sys.stderr)
             total_added = len(out)
             break
         for tup in product(base, repeat=d):
@@ -301,6 +307,8 @@ async def probe_wordlist(session: aiohttp.ClientSession, base: str, prefix: str,
         path = prefix.rstrip("/") + "/" + rel.lstrip("/")
         url = urljoin(base + "/", path.lstrip("/"))
         tasks.append(check_single_endpoint(session, url, sem, timeout, delay_range, retries))
+    if not tasks:
+        return []
     completed = await asyncio.gather(*tasks)
     for c in completed:
         if c:
@@ -505,10 +513,13 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
     headers = {"User-Agent": ua}
     results = {"base": base, "mode": mode, "openapi": [], "robots_sitemap": [], "probed": [], "wordlist": [], "subdomains": []}
     effective_subdomain_probe = (probe_subs and not scope_prefix)
+
     wl_paths = expand_wordlist_paths(wordlist, depth)
+
     async with aiohttp.ClientSession(headers=headers) as session:
         found_specs = await try_openapi_locations(session, base, timeout, scope_prefix)
         results["openapi"].extend(found_specs)
+
         status, hdrs, html = await fetch_text(session, base + "/", timeout)
         if status and html:
             candidates = extract_spec_url_from_html(html, base)
@@ -523,6 +534,7 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                 s, h, t = await fetch_text(session, c, timeout)
                 if s and t:
                     results["openapi"].append({"url": c, "status": s, "hint": "found-in-html"})
+
         r_and_s = await fetch_robots_and_sitemap(session, base, timeout)
         results["robots_sitemap"].extend(r_and_s)
         for item in r_and_s:
@@ -534,11 +546,18 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                 for u in parse_sitemap_for_paths(item["text"]):
                     if (not scope_prefix) or urlparse(u).path.startswith(scope_prefix):
                         results["probed"].append({"url": u, "source": "sitemap"})
+
         prefixes = [scope_prefix] if scope_prefix else COMMON_API_PREFIXES
-        wl_tasks = [probe_wordlist(session, base, pref, wl_paths, sem, timeout, delay_range, retries) for pref in prefixes if pref]
-        wl_results = await asyncio.gather(*wl_tasks)
-        for bucket in wl_results:
-            results["wordlist"].extend(bucket)
+
+        if wl_paths:
+            wl_tasks = [probe_wordlist(session, base, pref, wl_paths, sem, timeout, delay_range, retries) for pref in prefixes if pref]
+            wl_results = await asyncio.gather(*wl_tasks)
+            for bucket in wl_results:
+                results["wordlist"].extend(bucket)
+        else:
+            results["wordlist"] = []
+            print("[i] Wordlist probing skipped (wl_paths is empty — depth <= 0 or empty wordlist).")
+
         to_probe = [item["url"] for item in results["wordlist"] if item and item.get("url")]
         async def probe_options(u):
             async with sem:
@@ -549,15 +568,18 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                         return {"url": u, "options_status": resp.status, "allow": resp.headers.get("Allow", "")}
                 except Exception:
                     return None
-        options_results = await asyncio.gather(*[probe_options(u) for u in to_probe])
-        for orr in options_results:
-            if orr:
-                for w in results["wordlist"]:
-                    if w["url"] == orr["url"]:
-                        w.update(orr)
+        if to_probe:
+            options_results = await asyncio.gather(*[probe_options(u) for u in to_probe])
+            for orr in options_results:
+                if orr:
+                    for w in results["wordlist"]:
+                        if w["url"] == orr["url"]:
+                            w.update(orr)
+
         if effective_subdomain_probe:
             sub_results = await probe_subdomains(base, session, sem, timeout, delay_range, retries, subdomains_custom)
             results["subdomains"].extend(sub_results)
+
         specs_to_parse: List[Dict[str,Any]] = []
         if openapi_arg:
             if re.match(r"^https?://", openapi_arg):
@@ -572,6 +594,7 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                     specs_to_parse.append(load_openapi_from_path(openapi_arg))
                 except Exception as e:
                     print(f"[!] Failed to load OpenAPI from file: {e}")
+
         if auto_parse_discovered:
             for item in results["openapi"]:
                 u = item.get("url")
@@ -585,6 +608,7 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                     specs_to_parse.append(spec)
                 except Exception:
                     pass
+
     seen = set()
     oas_payloads: List[Dict[str,Any]] = []
     oas_endpoints: List[str] = []
@@ -600,9 +624,10 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
     return results, oas_payloads, sorted(set(oas_endpoints))
 
 def save_results(results: dict):
-    with open("results.json", "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
+    # Always write CSV rows for: wordlist, openapi candidates, robots/sitemap-derived URLs, and subdomain probes.
     rows = []
+
+    # 1) Wordlist probing results (if any)
     for w in results.get("wordlist", []):
         rows.append({
             "url": w.get("url"),
@@ -610,10 +635,53 @@ def save_results(results: dict):
             "content_type": w.get("content_type"),
             "length": w.get("length"),
             "json_like": w.get("json_like"),
-            "allow": w.get("allow", "")
+            "allow": w.get("allow", ""),
+            "found": "wordlist"
         })
+
+    # 2) OpenAPI/Swagger discovery candidates
+    for o in results.get("openapi", []):
+        rows.append({
+            "url": o.get("url"),
+            "status": o.get("status"),
+            "content_type": "",           # not fetched in detail here
+            "length": "",                 # not fetched
+            "json_like": "",              # unknown
+            "allow": "",                  # unknown
+            "found": o.get("hint") or "openapi-candidate"
+        })
+
+    # 3) Robots & sitemap extracted URLs
+    for p in results.get("probed", []):
+        rows.append({
+            "url": p.get("url"),
+            "status": "",                 # not probed with GET here
+            "content_type": "",
+            "length": "",
+            "json_like": "",
+            "allow": "",
+            "found": p.get("source") or "robots/sitemap"
+        })
+
+    # 4) Subdomain probing (full info available)
+    for s in results.get("subdomains", []):
+        rows.append({
+            "url": s.get("url"),
+            "status": s.get("status"),
+            "content_type": s.get("content_type"),
+            "length": s.get("length"),
+            "json_like": s.get("json_like"),
+            "allow": "",                  # OPTIONS not queried here
+            "found": "subdomain-probe"
+        })
+
+    # Write files
+    with open("results.json", "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+
+    fieldnames = ["url","status","content_type","length","json_like","allow","found"]
     with open("results.csv", "w", newline="", encoding="utf-8") as csvf:
-        writer = csv.DictWriter(csvf, fieldnames=["url","status","content_type","length","json_like","allow"])
+        writer = csv.DictWriter(csvf, fieldnames=fieldnames)
         writer.writeheader()
         for r in rows:
             writer.writerow(r)
@@ -647,16 +715,121 @@ def parse_args():
     ap.add_argument("--openapi", help="OpenAPI spec file path or URL (yaml/json)")
     ap.add_argument("--no-auto-openapi", action="store_true", help="Disable auto parse of discovered OpenAPI specs")
     ap.add_argument("--prefix", help="Scope prefix, e.g. /api (tool stays strictly under this path)")
-    ap.add_argument("--depth", type=int, default=1, help="Bruteforce depth for wordlist combinations (default: 1)")
+    ap.add_argument("--depth", type=int, default=1, help="Bruteforce depth for wordlist combinations (default: 1). Set 0 to skip wordlist probing entirely.")
     return ap.parse_args()
+
+def _cli_flag_present(names: List[str]) -> bool:
+    argv = sys.argv[1:]
+    for n in names:
+        if n in argv:
+            return True
+        for a in argv:
+            if a.startswith(n + "="):
+                return True
+    return False
+
+def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
+    mode_provided = _cli_flag_present(["--mode", "-m"])
+    ua_provided = _cli_flag_present(["--user-agent", "-a", "--user_agent"])
+    depth_provided = _cli_flag_present(["--depth"])
+
+    if not any((mode_provided, ua_provided, depth_provided)):
+        print("Setup your scan — interactive mode (press Enter to accept default where offered).")
+    else:
+        print("Setup your scan — interactive prompts for parameters not provided via CLI.")
+
+    if not mode_provided:
+        while True:
+            print("\nSelect mode:")
+            print("[1] stealth")
+            print("[2] medium (default)")
+            print("[3] aggressive")
+            choice = input("Choose [1-3] (default 2): ").strip()
+            if choice == "" or choice == "2":
+                args.mode = "medium"; break
+            if choice == "1":
+                args.mode = "stealth"; break
+            if choice == "3":
+                args.mode = "aggressive"; break
+            print("Invalid choice, try again.")
+    else:
+        if args.mode not in MODE_PRESETS:
+            print(f"[!] Warning: provided mode '{args.mode}' not recognized. Falling back to 'medium'.")
+            args.mode = "medium"
+
+    if not ua_provided:
+        while True:
+            print("\nUser-Agent selection:")
+            print("[1] default (APIRecon/1.0)")
+            print("[2] random")
+            print("[3] custom")
+            choice = input("Choose [1-3] (default 1): ").strip()
+            if choice == "" or choice == "1":
+                args.user_agent = "APIRecon/1.0"; break
+            if choice == "2":
+                args.user_agent = "random"; break
+            if choice == "3":
+                ua = input("Enter custom User-Agent string: ").strip()
+                if ua:
+                    args.user_agent = ua; break
+                else:
+                    print("Empty UA, try again.")
+            else:
+                print("Invalid choice, try again.")
+    else:
+        if not args.user_agent:
+            args.user_agent = "APIRecon/1.0"
+
+    if not depth_provided:
+        while True:
+            print("\nDepth selection:")
+            print("[1] 0 - No BruteForce")
+            print("[2] 1 - One level BruteForce (default)")
+            print("[3] custom (enter number)")
+            choice = input("Choose [1-3] (default 2): ").strip()
+            if choice == "" or choice == "2":
+                args.depth = 1; break
+            if choice == "1":
+                args.depth = 0; break
+            if choice == "3":
+                val = input("Enter integer depth (0 to skip brute, >=1 to enable): ").strip()
+                try:
+                    d = int(val)
+                    if d < 0:
+                        print("Depth cannot be negative."); continue
+                    args.depth = d; break
+                except ValueError:
+                    print("Not an integer, try again.")
+            else:
+                print("Invalid choice, try again.")
+    else:
+        try:
+            i = int(args.depth)
+            if i < 0:
+                print("[!] Warning: depth < 0 not allowed. Using 1.")
+                args.depth = 1
+        except Exception:
+            print("[!] Warning: depth not an integer. Using 1.")
+            args.depth = 1
+
+    print("\nConfiguration:")
+    ua_display = args.user_agent if args.user_agent != "random" else "random (will pick one at runtime)"
+    print(f"  mode: {args.mode}")
+    print(f"  user-agent: {ua_display}")
+    print(f"  depth: {args.depth}\n")
+    return args
 
 def main():
     args = parse_args()
+    if sys.stdin.isatty():
+        args = interactive_setup(args)
+
     wordlist = load_wordlist(args.wordlist)
     custom_subs = load_subdomains_file(args.subdomains_file)
     ua = pick_user_agent(args.user_agent)
     mode = args.mode
     auto_parse = not args.no_auto_openapi
+
     print(f"[+] Target: {args.target}")
     print(f"[+] Mode: {mode} | UA: {ua} | Wordlist: {len(wordlist)} | Prefix: {args.prefix or '(none)'} | Depth: {args.depth}")
     if args.prefix:
@@ -665,7 +838,7 @@ def main():
         run_recon(
             base=args.target,
             wordlist=wordlist,
-            depth=max(1, args.depth),
+            depth=args.depth,        # 0 means skip brute
             mode=mode,
             ua=ua,
             probe_subs=args.probe_subdomains,
