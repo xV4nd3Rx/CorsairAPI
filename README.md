@@ -76,11 +76,11 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 > CLI arguments always take precedence over interactive choices.
 
 ### What it asks?
-1. **Mode** - scan intensity  
+1. **Mode** - Scan Intensity  
    - `[1] stealth` • `[2] medium (default)` • `[3] aggressive`
-2. **User-Agent** - request identity  
+2. **User-Agent** - Request Identity  
    - `[1] default (APIRecon/1.0)` • `[2] random` • `[3] custom`
-3. **Depth** - wordlist bruteforce level  
+3. **Depth** - Wordlist BruteForce Level  
    - `[1] 0 — No BruteForce` • `[2] 1 — One level (default)` • `[3] custom`
 
 > **Note:** `depth=0` fully disables wordlist bruteforce. OpenAPI/Swagger auto-discovery, `robots.txt`/`sitemap.xml` parsing, and optional subdomain probing remain active.
@@ -91,27 +91,27 @@ $ python3 CorsairAPI.py -H https://example.com
 Setup your scan — interactive mode (press Enter to accept default where offered).
 
 Select mode:
-[1] stealth
-[2] medium (default)
-[3] aggressive
+[1] Stealth
+[2] Medium (default)
+[3] Aggressive
 Choose [1-3] (default 2): 3
 
 User-Agent selection:
-[1] default (APIRecon/1.0)
-[2] random
-[3] custom
+[1] Default (APIRecon/1.0)
+[2] Random
+[3] Custom
 Choose [1-3] (default 1): 2
 
 Depth selection:
 [1] 0 - No BruteForce
 [2] 1 - One level BruteForce (default)
-[3] custom (enter number)
+[3] Custom (enter number)
 Choose [1-3] (default 2): 1
 
 Configuration:
-  mode: aggressive
-  user-agent: random (will pick one at runtime)
-  depth: 0
+  Mode: aggressive
+  User-Agent: Random (will pick one at runtime)
+  Depth: 0
 
 ```
 
