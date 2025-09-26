@@ -75,12 +75,12 @@ python CorsairAPI.py -H https://scantarget.com --prefix /api --depth 4
 > If CLI flags are **not** provided and STDIN is a TTY, CorsairAPI launches a short wizard to collect the key parameters.  
 > CLI arguments always take precedence over interactive choices.
 
-### What it asks
-1. **Mode** — scan intensity  
+### What it asks?
+1. **Mode** - scan intensity  
    - `[1] stealth` • `[2] medium (default)` • `[3] aggressive`
-2. **User-Agent** — request identity  
+2. **User-Agent** - request identity  
    - `[1] default (APIRecon/1.0)` • `[2] random` • `[3] custom`
-3. **Depth** — wordlist bruteforce level  
+3. **Depth** - wordlist bruteforce level  
    - `[1] 0 — No BruteForce` • `[2] 1 — One level (default)` • `[3] custom`
 
 > **Note:** `depth=0` fully disables wordlist bruteforce. OpenAPI/Swagger auto-discovery, `robots.txt`/`sitemap.xml` parsing, and optional subdomain probing remain active.
