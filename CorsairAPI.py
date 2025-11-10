@@ -1,42 +1,4 @@
-"""
-CorsairAPI tool (async) - OpenAPI-aware
-
-Purpose:
-  Asynchronous reconnaissance and initial testing of web APIs with support for
-  automatic OpenAPI/Swagger discovery, payload generation, scoped bruteforcing,
-  and export of artifacts for triage and import into tools like Burp or ZAP.
-
-Key Features:
-  • OpenAPI Discovery:
-      - Detects specifications at common locations (/openapi.json, /swagger.json, /api-docs, etc.)
-      - Extracts paths, methods, parameters, request bodies, and security schemes
-  • Payload Generation:
-      - Builds valid baseline payloads and negative test cases from OpenAPI schemas
-      - Automatically inserts placeholders for authentication headers (Bearer, API-Key)
-  • Wordlist Brute Force:
-      - Supports custom wordlists (--wordlist)
-      - Multi-depth path generation (--depth, default=1)
-      - Scoped to a specific prefix (--prefix), e.g. /api
-  • Passive Recon:
-      - Parses robots.txt and sitemap.xml for hidden paths
-      - Detects API-related endpoints in HTML and Swagger UI references
-  • Subdomain Probing:
-      - Tests common API-related subdomains (api., dev., uat., test., etc.)
-      - Can be disabled when a strict prefix scope is set
-  • Configurable Modes:
-      - stealth, medium, aggressive — adjust concurrency, delay, timeouts, and retries
-  • Customization:
-      - Custom or random User-Agent (--user-agent)
-      - Target passed via -H/--target
-  • Output:
-      - results.json / results.csv  → recon findings
-      - oas_endpoints.txt           → list of API endpoints from OpenAPI
-      - oas_payloads.jsonl          → baseline and negative payloads (JSONL)
-      - oas_burp.csv                → simplified CSV for Burp/ZAP or custom pipelines
-"""
-
 from __future__ import annotations
-
 import argparse
 import asyncio
 import sys
@@ -44,39 +6,35 @@ import json
 import csv
 import re
 import random
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from urllib.parse import urljoin, urlparse, urlencode, quote
 from itertools import product
-
 import aiohttp
 from aiohttp import ClientTimeout
-
 try:
     import yaml
 except Exception:
     yaml = None
 
 DEFAULT_WORDLIST = [
-    "users", "user", "accounts", "auth", "login", "logout", "refresh",
-    "books", "books/list", "books/{id}", "orders", "orders/{id}",
-    "admin", "status", "health", "metrics", "search", "upload", "download",
-    "profile", "settings", "config", "payments", "webhook", "callback",
-    "graphql", "graphiql", "altair", "playground", "docs", "doc", "swagger",
+    "users","user","accounts","auth","login","logout","refresh",
+    "books","books/list","books/{id}","orders","orders/{id}",
+    "admin","status","health","metrics","search","upload","download",
+    "profile","settings","config","payments","webhook","callback",
+    "graphql","graphiql","altair","playground","docs","doc","swagger"
 ]
-
 COMMON_API_PREFIXES = [
-    "/api/", "/api", "/api/v1", "/api/v2", "/v1/", "/v1", "/v2/", "/v2", "/v3/",
-    "/rest/", "/rest", "/swagger", "/swagger.json", "/swagger-ui", "/doc", "/docs",
-    "/graphql", "/graphiql", "/altair", "/playground", "/api/v3", "/services/",
-    "/internal/", "/api-docs", "/openapi.json", "/openapi.yaml",
+    "/api/","/api","/api/v1","/api/v2","/v1/","/v1","/v2/","/v2","/v3/",
+    "/rest/","/rest","/swagger","/swagger.json","/swagger-ui","/doc","/docs",
+    "/graphql","/graphiql","/altair","/playground","/api/v3","/services/",
+    "/internal/","/api-docs","/openapi.json","/openapi.yaml"
 ]
-
 DEFAULT_SUBDOMAIN_HINTS = [
-    "api", "uat", "dev", "test", "staging", "stage", "developer", "developer-api",
-    "developer-%s", "api-%s"
+    "api","uat","dev","test","staging","stage","developer","developer-api",
+    "developer-%s","api-%s"
 ]
-
 RANDOM_USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
@@ -85,19 +43,40 @@ RANDOM_USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edg/120.0.0.0",
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-    "curl/7.88.1",
-    "Wget/1.21.3 (linux-gnu)",
-    "Python-urllib/3.11",
-    "python-requests/2.31.0",
-    "PostmanRuntime/7.32.3",
-    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    "curl/7.88.1","Wget/1.21.3 (linux-gnu)","Python-urllib/3.11","python-requests/2.31.0",
+    "PostmanRuntime/7.32.3","Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 ]
-
 MODE_PRESETS = {
-    "stealth":    {"concurrency": 5,  "delay": (0.5, 1.5), "timeout": 20, "retries": 1},
-    "medium":     {"concurrency": 20, "delay": (0.0, 0.3), "timeout": 15, "retries": 1},
-    "aggressive": {"concurrency": 60, "delay": (0.0, 0.0), "timeout": 10, "retries": 0},
+    "stealth":{"concurrency":5,"delay":(0.5,1.5),"timeout":20,"retries":1},
+    "medium":{"concurrency":20,"delay":(0.0,0.3),"timeout":15,"retries":1},
+    "aggressive":{"concurrency":60,"delay":(0.0,0.0),"timeout":10,"retries":0}
 }
+
+class Progress:
+    def __init__(self,total:int,label:str="Progress"):
+        self.total = max(1,total)
+        self.label = label
+        self.start = time.time()
+        self.done = 0
+        self.last_len = 0
+    def update(self,step:int=1):
+        self.done += step
+        now = time.time()
+        elapsed = now - self.start
+        rate = self.done/elapsed if elapsed>0 else 0
+        remain = (self.total - self.done)/rate if rate>0 else 0
+        pct = int(self.done*100/self.total)
+        bar_len = 24
+        fill = int(bar_len*pct/100)
+        bar = "#"*fill + "-"*(bar_len-fill)
+        line = f"{self.label} [{bar}] {pct:3d}%  {self.done}/{self.total}  elapsed {int(elapsed)}s  ETA {int(remain)}s"
+        pad = " " * max(0,self.last_len - len(line))
+        self.last_len = len(line)
+        sys.stdout.write("\r"+line+pad)
+        sys.stdout.flush()
+        if self.done>=self.total:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
 def normalize_url(base: str) -> str:
     if not base.startswith("http"):
@@ -119,7 +98,6 @@ def load_wordlist(path: Optional[str]) -> List[str]:
         return DEFAULT_WORDLIST.copy()
     p = Path(path)
     if not p.exists():
-        print(f"[!] Wordlist {path} not found — fallback to builtin list.")
         return DEFAULT_WORDLIST.copy()
     with p.open("r", encoding="utf-8", errors="ignore") as f:
         return [l.strip() for l in f if l.strip() and not l.startswith("#")]
@@ -129,7 +107,6 @@ def load_subdomains_file(path: Optional[str]) -> List[str]:
         return []
     p = Path(path)
     if not p.exists():
-        print(f"[!] Subdomains file {path} not found — skipping.")
         return []
     with p.open("r", encoding="utf-8", errors="ignore") as f:
         return [l.strip() for l in f if l.strip() and not l.startswith("#")]
@@ -163,10 +140,10 @@ async def try_openapi_locations(session: aiohttp.ClientSession, base: str, timeo
             f"{scope_prefix}/swagger.json",
             f"{scope_prefix}/api-docs",
             f"{scope_prefix}/swagger/v1/swagger.json",
-            f"{scope_prefix}/v2/api-docs",
+            f"{scope_prefix}/v2/api-docs"
         ]
     else:
-        cand = COMMON_API_PREFIXES + ["/swagger/v1/swagger.json", "/v2/api-docs"]
+        cand = COMMON_API_PREFIXES + ["/swagger/v1/swagger.json","/v2/api-docs"]
     seen = set()
     for p in cand:
         url = urljoin(base + "/", p.lstrip("/"))
@@ -221,7 +198,7 @@ def parse_sitemap_for_paths(text: str) -> List[str]:
 
 async def fetch_robots_and_sitemap(session: aiohttp.ClientSession, base: str, timeout: int):
     results = []
-    for rel in ("robots.txt", "sitemap.xml"):
+    for rel in ("robots.txt","sitemap.xml"):
         url = urljoin(base + "/", rel)
         try:
             async with session.get(url, timeout=ClientTimeout(total=timeout)) as resp:
@@ -250,7 +227,7 @@ async def check_single_endpoint(session: aiohttp.ClientSession, url: str, sem: a
                         "length": len(body),
                         "title_snippet": (re.search(r'<title>(.*?)</title>', text_sample, re.IGNORECASE).group(1) if re.search(r'<title>(.*?)</title>', text_sample, re.IGNORECASE) else "")[:120],
                         "json_like": ("application/json" in content_type.lower()) or ("{" in text_sample[:50]),
-                        "headers": dict(resp.headers),
+                        "headers": dict(resp.headers)
                     }
             except asyncio.CancelledError:
                 raise
@@ -262,12 +239,6 @@ async def check_single_endpoint(session: aiohttp.ClientSession, url: str, sem: a
     return None
 
 def expand_wordlist_paths(wordlist: List[str], depth: int, max_combinations: int = 100000) -> List[str]:
-    """
-    Behavior:
-      - depth <= 0 => return empty list (skip brute)
-      - depth == 1 => return base list
-      - depth > 1 => expand combinations
-    """
     if depth <= 0:
         return []
     base = [w.strip().strip("/") for w in wordlist if w and w.strip()]
@@ -283,7 +254,6 @@ def expand_wordlist_paths(wordlist: List[str], depth: int, max_combinations: int
         if total_added + combos > max_combinations:
             allowed = max(0, max_combinations - total_added)
             if allowed <= 0:
-                print(f"[WARN] wordlist expansion stopped: reached max_combinations={max_combinations}.", file=sys.stderr)
                 break
             sampled = set()
             tries = 0
@@ -292,7 +262,6 @@ def expand_wordlist_paths(wordlist: List[str], depth: int, max_combinations: int
                 sampled.add("/".join(tup))
                 tries += 1
             out.update(sampled)
-            print(f"[WARN] wordlist expansion: sampled {len(sampled)} combinations (limit {max_combinations}).", file=sys.stderr)
             total_added = len(out)
             break
         for tup in product(base, repeat=d):
@@ -300,7 +269,7 @@ def expand_wordlist_paths(wordlist: List[str], depth: int, max_combinations: int
         total_added = len(out)
     return sorted(out)
 
-async def probe_wordlist(session: aiohttp.ClientSession, base: str, prefix: str, wordlist_paths: List[str], sem: asyncio.Semaphore, timeout: int, delay_range: tuple, retries: int):
+async def probe_wordlist(session: aiohttp.ClientSession, base: str, prefix: str, wordlist_paths: List[str], sem: asyncio.Semaphore, timeout: int, delay_range: tuple, retries: int, progress: Optional[Progress]=None):
     results = []
     tasks = []
     for rel in wordlist_paths:
@@ -309,10 +278,14 @@ async def probe_wordlist(session: aiohttp.ClientSession, base: str, prefix: str,
         tasks.append(check_single_endpoint(session, url, sem, timeout, delay_range, retries))
     if not tasks:
         return []
-    completed = await asyncio.gather(*tasks)
-    for c in completed:
-        if c:
-            results.append(c)
+    gathered = []
+    for fut in asyncio.as_completed(tasks):
+        res = await fut
+        if res:
+            results.append(res)
+        gathered.append(1)
+        if progress:
+            progress.update(1)
     return results
 
 async def probe_subdomains(base: str, session: aiohttp.ClientSession, sem: asyncio.Semaphore, timeout: int, delay_range: tuple, retries: int, extra_subdomains: List[str]):
@@ -332,7 +305,7 @@ async def probe_subdomains(base: str, session: aiohttp.ClientSession, sem: async
     tasks = []
     for sub in candidates:
         fqdn = f"{sub}.{host}"
-        for scheme in ("https://", "http://"):
+        for scheme in ("https://","http://"):
             url = f"{scheme}{fqdn}/"
             tasks.append(check_single_endpoint(session, url, sem, timeout, delay_range, retries))
     completed = await asyncio.gather(*tasks, return_exceptions=True)
@@ -347,15 +320,19 @@ def _ensure_list(x):
     return x if isinstance(x, list) else [x]
 
 def pick_server_url(spec: Dict[str,Any], fallback_base: str) -> str:
+    if not isinstance(spec, dict):
+        return fallback_base.rstrip("/")
     servers = spec.get("servers") or []
     for s in servers:
-        u = s.get("url")
-        if u and u.startswith("http"):
-            return u.rstrip("/")
+        if isinstance(s, dict):
+            u = s.get("url")
+            if u and isinstance(u, str) and u.startswith("http"):
+                return u.rstrip("/")
     if "host" in spec:
         schemes = spec.get("schemes") or ["https"]
         base_path = spec.get("basePath", "")
-        return f"{schemes[0]}://{spec['host']}{base_path}".rstrip("/")
+        scheme = schemes[0] if isinstance(schemes, list) and schemes else "https"
+        return f"{scheme}://{spec['host']}{base_path}".rstrip("/")
     return fallback_base.rstrip("/")
 
 def example_for_primitive(schema: Dict[str,Any], negative: bool=False):
@@ -372,9 +349,9 @@ def example_for_primitive(schema: Dict[str,Any], negative: bool=False):
         if fmt == "date-time": return "2025-01-01T00:00:00Z"
         if fmt == "email": return "user@example.com"
         return "test"
-    if t == "integer": return (0 if not negative else -999999)
-    if t == "number": return (1.23 if not negative else 1e309)
-    if t == "boolean": return (True if not negative else "not_bool")
+    if t == "integer": return 0 if not negative else -999999
+    if t == "number": return 1.23 if not negative else 1e309
+    if t == "boolean": return True if not negative else "not_bool"
     return "test"
 
 def build_example_from_schema(schema: Dict[str,Any], negative: bool=False):
@@ -450,6 +427,8 @@ def extract_request_body(op: Dict[str,Any]):
     return None, None
 
 def generate_requests_from_oas(spec: Dict[str,Any], fallback_base: str, scope_prefix: Optional[str]) -> List[Dict[str,Any]]:
+    if not isinstance(spec, dict):
+        return []
     base_url = pick_server_url(spec, fallback_base)
     ops = collect_oas_operations(spec)
     reqs = []
@@ -493,18 +472,28 @@ def generate_requests_from_oas(spec: Dict[str,Any], fallback_base: str, scope_pr
 def load_openapi_from_path(path: str) -> Dict[str,Any]:
     t = Path(path).read_text(encoding="utf-8", errors="ignore")
     try:
-        return json.loads(t)
+        parsed = json.loads(t)
     except Exception:
         if yaml is None:
             raise RuntimeError("PyYAML is required to parse YAML OpenAPI")
-        return yaml.safe_load(t)
+        parsed = yaml.safe_load(t)
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"OpenAPI: parsed content from file '{path}' is not a mapping/dict (type={type(parsed).__name__})")
+    return parsed
 
 def load_openapi_from_url(text: str) -> Dict[str,Any]:
-    if text.strip().startswith("{"):
-        return json.loads(text)
-    if yaml is None:
-        raise RuntimeError("PyYAML is required to parse YAML OpenAPI")
-    return yaml.safe_load(text)
+    if text is None:
+        raise RuntimeError("OpenAPI: empty response content")
+    s = text.lstrip()
+    if s.startswith("{"):
+        parsed = json.loads(text)
+    else:
+        if yaml is None:
+            raise RuntimeError("PyYAML is required to parse YAML OpenAPI")
+        parsed = yaml.safe_load(text)
+    if not isinstance(parsed, dict):
+        raise RuntimeError("OpenAPI: parsed content from URL is not a mapping/dict")
+    return parsed
 
 async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: str, probe_subs: bool, subdomains_custom: List[str], openapi_arg: Optional[str], auto_parse_discovered: bool, scope_prefix: Optional[str]):
     base = normalize_url(base)
@@ -513,13 +502,12 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
     headers = {"User-Agent": ua}
     results = {"base": base, "mode": mode, "openapi": [], "robots_sitemap": [], "probed": [], "wordlist": [], "subdomains": []}
     effective_subdomain_probe = (probe_subs and not scope_prefix)
-
     wl_paths = expand_wordlist_paths(wordlist, depth)
-
+    parse_errors: List[str] = []
+    parsed_specs_count = 0
     async with aiohttp.ClientSession(headers=headers) as session:
         found_specs = await try_openapi_locations(session, base, timeout, scope_prefix)
         results["openapi"].extend(found_specs)
-
         status, hdrs, html = await fetch_text(session, base + "/", timeout)
         if status and html:
             candidates = extract_spec_url_from_html(html, base)
@@ -534,7 +522,6 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                 s, h, t = await fetch_text(session, c, timeout)
                 if s and t:
                     results["openapi"].append({"url": c, "status": s, "hint": "found-in-html"})
-
         r_and_s = await fetch_robots_and_sitemap(session, base, timeout)
         results["robots_sitemap"].extend(r_and_s)
         for item in r_and_s:
@@ -546,18 +533,24 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                 for u in parse_sitemap_for_paths(item["text"]):
                     if (not scope_prefix) or urlparse(u).path.startswith(scope_prefix):
                         results["probed"].append({"url": u, "source": "sitemap"})
-
         prefixes = [scope_prefix] if scope_prefix else COMMON_API_PREFIXES
-
+        total_tasks = 0
+        for pref in prefixes:
+            if not pref:
+                continue
+            total_tasks += len(wl_paths)
+        progress = Progress(total_tasks if total_tasks>0 else 1, label="Wordlist")
         if wl_paths:
-            wl_tasks = [probe_wordlist(session, base, pref, wl_paths, sem, timeout, delay_range, retries) for pref in prefixes if pref]
-            wl_results = await asyncio.gather(*wl_tasks)
-            for bucket in wl_results:
+            wl_results_all = []
+            for pref in prefixes:
+                if not pref:
+                    continue
+                bucket = await probe_wordlist(session, base, pref, wl_paths, sem, timeout, delay_range, retries, progress=progress)
+                wl_results_all.append(bucket)
+            for bucket in wl_results_all:
                 results["wordlist"].extend(bucket)
         else:
             results["wordlist"] = []
-            print("[i] Wordlist probing skipped (wl_paths is empty — depth <= 0 or empty wordlist).")
-
         to_probe = [item["url"] for item in results["wordlist"] if item and item.get("url")]
         async def probe_options(u):
             async with sem:
@@ -575,26 +568,27 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                     for w in results["wordlist"]:
                         if w["url"] == orr["url"]:
                             w.update(orr)
-
         if effective_subdomain_probe:
             sub_results = await probe_subdomains(base, session, sem, timeout, delay_range, retries, subdomains_custom)
             results["subdomains"].extend(sub_results)
-
         specs_to_parse: List[Dict[str,Any]] = []
         if openapi_arg:
             if re.match(r"^https?://", openapi_arg):
                 s, h, t = await fetch_text(session, openapi_arg, timeout)
                 if t:
                     try:
-                        specs_to_parse.append(load_openapi_from_url(t))
+                        parsed = load_openapi_from_url(t)
+                        if isinstance(parsed, dict):
+                            specs_to_parse.append(parsed); parsed_specs_count += 1
                     except Exception as e:
-                        print(f"[!] Failed to parse OpenAPI from URL: {e}")
+                        parse_errors.append(f"{openapi_arg} | {e}")
             else:
                 try:
-                    specs_to_parse.append(load_openapi_from_path(openapi_arg))
+                    parsed = load_openapi_from_path(openapi_arg)
+                    if isinstance(parsed, dict):
+                        specs_to_parse.append(parsed); parsed_specs_count += 1
                 except Exception as e:
-                    print(f"[!] Failed to load OpenAPI from file: {e}")
-
+                    parse_errors.append(f"{openapi_arg} | {e}")
         if auto_parse_discovered:
             for item in results["openapi"]:
                 u = item.get("url")
@@ -605,10 +599,10 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
                     continue
                 try:
                     spec = load_openapi_from_url(t)
-                    specs_to_parse.append(spec)
-                except Exception:
-                    pass
-
+                    if isinstance(spec, dict):
+                        specs_to_parse.append(spec); parsed_specs_count += 1
+                except Exception as e:
+                    parse_errors.append(f"{u} | {e}")
     seen = set()
     oas_payloads: List[Dict[str,Any]] = []
     oas_endpoints: List[str] = []
@@ -621,13 +615,10 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
             seen.add(key)
             oas_payloads.append(r)
             oas_endpoints.append(f"{r['method']} {r['url']}")
-    return results, oas_payloads, sorted(set(oas_endpoints))
+    return results, oas_payloads, sorted(set(oas_endpoints)), parse_errors, parsed_specs_count
 
 def save_results(results: dict):
-    # Always write CSV rows for: wordlist, openapi candidates, robots/sitemap-derived URLs, and subdomain probes.
     rows = []
-
-    # 1) Wordlist probing results (if any)
     for w in results.get("wordlist", []):
         rows.append({
             "url": w.get("url"),
@@ -638,32 +629,26 @@ def save_results(results: dict):
             "allow": w.get("allow", ""),
             "found": "wordlist"
         })
-
-    # 2) OpenAPI/Swagger discovery candidates
     for o in results.get("openapi", []):
         rows.append({
             "url": o.get("url"),
             "status": o.get("status"),
-            "content_type": "",           # not fetched in detail here
-            "length": "",                 # not fetched
-            "json_like": "",              # unknown
-            "allow": "",                  # unknown
+            "content_type": "",
+            "length": "",
+            "json_like": "",
+            "allow": "",
             "found": o.get("hint") or "openapi-candidate"
         })
-
-    # 3) Robots & sitemap extracted URLs
     for p in results.get("probed", []):
         rows.append({
             "url": p.get("url"),
-            "status": "",                 # not probed with GET here
+            "status": "",
             "content_type": "",
             "length": "",
             "json_like": "",
             "allow": "",
             "found": p.get("source") or "robots/sitemap"
         })
-
-    # 4) Subdomain probing (full info available)
     for s in results.get("subdomains", []):
         rows.append({
             "url": s.get("url"),
@@ -671,14 +656,11 @@ def save_results(results: dict):
             "content_type": s.get("content_type"),
             "length": s.get("length"),
             "json_like": s.get("json_like"),
-            "allow": "",                  # OPTIONS not queried here
+            "allow": "",
             "found": "subdomain-probe"
         })
-
-    # Write files
     with open("results.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
-
     fieldnames = ["url","status","content_type","length","json_like","allow","found"]
     with open("results.csv", "w", newline="", encoding="utf-8") as csvf:
         writer = csv.DictWriter(csvf, fieldnames=fieldnames)
@@ -705,17 +687,17 @@ def save_oas_exports(oas_payloads: List[Dict[str,Any]], oas_endpoints: List[str]
             })
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="API Recon (async) — OpenAPI-aware with scoped prefix & depth")
-    ap.add_argument("-H", "--target", required=True, help="Target host or URL, e.g. -H https://scantarget.com")
-    ap.add_argument("--wordlist", "-w", help="Path to endpoints wordlist (one per line)")
-    ap.add_argument("--mode", "-m", choices=["stealth","medium","aggressive"], default="medium", help="Intensity mode")
-    ap.add_argument("--user-agent", "-a", default="APIRecon/1.0", help='User-Agent string or "random"')
-    ap.add_argument("--probe-subdomains", action="store_true", help="Probe likely subdomains (ignored if --prefix is set)")
-    ap.add_argument("--subdomains-file", help="Custom subdomains list (one per line)")
-    ap.add_argument("--openapi", help="OpenAPI spec file path or URL (yaml/json)")
-    ap.add_argument("--no-auto-openapi", action="store_true", help="Disable auto parse of discovered OpenAPI specs")
-    ap.add_argument("--prefix", help="Scope prefix, e.g. /api (tool stays strictly under this path)")
-    ap.add_argument("--depth", type=int, default=1, help="Bruteforce depth for wordlist combinations (default: 1). Set 0 to skip wordlist probing entirely.")
+    ap = argparse.ArgumentParser(description="API Recon (async)")
+    ap.add_argument("-H","--target",required=True,help="Target host or URL")
+    ap.add_argument("--wordlist","-w",help="Path to endpoints wordlist")
+    ap.add_argument("--mode","-m",choices=["stealth","medium","aggressive"],default="medium",help="Intensity mode")
+    ap.add_argument("--user-agent","-a",default="APIRecon/1.0",help='User-Agent string or "random"')
+    ap.add_argument("--probe-subdomains",action="store_true",help="Probe likely subdomains (ignored if --prefix is set)")
+    ap.add_argument("--subdomains-file",help="Custom subdomains list")
+    ap.add_argument("--openapi",help="OpenAPI spec file path or URL (yaml/json)")
+    ap.add_argument("--no-auto-openapi",action="store_true",help="Disable auto parse of discovered OpenAPI specs")
+    ap.add_argument("--prefix",help="Scope prefix, e.g. /api")
+    ap.add_argument("--depth",type=int,default=1,help="Bruteforce depth (0 to skip)")
     return ap.parse_args()
 
 def _cli_flag_present(names: List[str]) -> bool:
@@ -729,21 +711,16 @@ def _cli_flag_present(names: List[str]) -> bool:
     return False
 
 def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
-    mode_provided = _cli_flag_present(["--mode", "-m"])
-    ua_provided = _cli_flag_present(["--user-agent", "-a", "--user_agent"])
+    mode_provided = _cli_flag_present(["--mode","-m"])
+    ua_provided = _cli_flag_present(["--user-agent","-a","--user_agent"])
     depth_provided = _cli_flag_present(["--depth"])
-
     if not any((mode_provided, ua_provided, depth_provided)):
-        print("Setup Your Scan - Interactive Mode (press Enter to accept default where offered).")
+        print("Setup Your Scan - Interactive Mode (press Enter to accept defaults).")
     else:
         print("Setup Your Scan - Interactive prompts for parameters not provided via CLI.")
-
     if not mode_provided:
         while True:
-            print("\nSelect mode:")
-            print("[1] stealth")
-            print("[2] medium (default)")
-            print("[3] aggressive")
+            print("\nSelect mode:\n[1] stealth\n[2] medium (default)\n[3] aggressive")
             choice = input("Choose [1-3] (default 2): ").strip()
             if choice == "" or choice == "2":
                 args.mode = "medium"; break
@@ -756,13 +733,9 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
         if args.mode not in MODE_PRESETS:
             print(f"[!] Warning: provided mode '{args.mode}' not recognized. Falling back to 'medium'.")
             args.mode = "medium"
-
     if not ua_provided:
         while True:
-            print("\nUser-Agent selection:")
-            print("[1] Default (APIRecon/1.0)")
-            print("[2] Random")
-            print("[3] Custom")
+            print("\nUser-Agent selection:\n[1] Default (APIRecon/1.0)\n[2] Random\n[3] Custom")
             choice = input("Choose [1-3] (default 1): ").strip()
             if choice == "" or choice == "1":
                 args.user_agent = "APIRecon/1.0"; break
@@ -779,13 +752,9 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
     else:
         if not args.user_agent:
             args.user_agent = "APIRecon/1.0"
-
     if not depth_provided:
         while True:
-            print("\nDepth selection:")
-            print("[1] 0 - No BruteForce")
-            print("[2] 1 - One Level BruteForce (default)")
-            print("[3] Custom (enter number)")
+            print("\nDepth selection:\n[1] 0 - No BruteForce\n[2] 1 - One Level BruteForce (default)\n[3] Custom (enter number)")
             choice = input("Choose [1-3] (default 2): ").strip()
             if choice == "" or choice == "2":
                 args.depth = 1; break
@@ -811,7 +780,6 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
         except Exception:
             print("[!] Warning: depth not an integer. Using 1.")
             args.depth = 1
-
     print("\nConfiguration:")
     ua_display = args.user_agent if args.user_agent != "random" else "random (will pick one at runtime)"
     print(f"  Mode: {args.mode}")
@@ -823,22 +791,20 @@ def main():
     args = parse_args()
     if sys.stdin.isatty():
         args = interactive_setup(args)
-
     wordlist = load_wordlist(args.wordlist)
     custom_subs = load_subdomains_file(args.subdomains_file)
     ua = pick_user_agent(args.user_agent)
     mode = args.mode
     auto_parse = not args.no_auto_openapi
-
     print(f"[+] Target: {args.target}")
     print(f"[+] Mode: {mode} | UA: {ua} | Wordlist: {len(wordlist)} | Prefix: {args.prefix or '(none)'} | Depth: {args.depth}")
     if args.prefix:
         print("[i] Prefix set — subdomain probing will be disabled to keep strict scope.")
-    results, oas_payloads, oas_endpoints = asyncio.run(
+    results, oas_payloads, oas_endpoints, parse_errors, parsed_specs_count = asyncio.run(
         run_recon(
             base=args.target,
             wordlist=wordlist,
-            depth=args.depth,        # 0 means skip brute
+            depth=args.depth,
             mode=mode,
             ua=ua,
             probe_subs=args.probe_subdomains,
@@ -852,6 +818,22 @@ def main():
     save_oas_exports(oas_payloads, oas_endpoints)
     print("[+] Recon saved: results.json, results.csv")
     print("[+] OpenAPI exports: oas_endpoints.txt, oas_payloads.jsonl, oas_burp.csv")
+    if parsed_specs_count == 0:
+        if parse_errors:
+            print("\nSummary: No valid OpenAPI specifications were parsed. Fallback to wordlist probing.")
+            print("OpenAPI parse errors (top 5):")
+            for msg in parse_errors[:5]:
+                print(f"  - {msg}")
+        else:
+            print("\nSummary: No OpenAPI specifications found. Fallback to wordlist probing.")
+    else:
+        if parse_errors:
+            print("\nSummary: Some OpenAPI specifications failed to parse. Others succeeded.")
+            print("OpenAPI parse errors (top 5):")
+            for msg in parse_errors[:5]:
+                print(f"  - {msg}")
+        else:
+            print("\nSummary: OpenAPI specifications parsed successfully.")
     print("[+] Done.")
 
 if __name__ == "__main__":
