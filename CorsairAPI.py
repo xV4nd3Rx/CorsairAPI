@@ -158,12 +158,19 @@ async def try_openapi_locations(session: aiohttp.ClientSession, base: str, timeo
 
 def extract_spec_url_from_html(html: str, base: str) -> List[str]:
     urls = set()
+    base_host = urlparse(base).hostname
     for m in re.finditer(r'(https?://[^\s"\'<>]+|["\'](/[^"\']*openapi[^"\']*)["\'])', html, re.IGNORECASE):
         u = m.group(1)
         if u.startswith('"') or u.startswith("'"):
             u = u.strip("\"'")
         if u.startswith("/"):
             u = urljoin(base, u)
+        try:
+            parsed = urlparse(u)
+            if parsed.hostname and base_host and parsed.hostname != base_host and not parsed.hostname.endswith("." + base_host):
+                continue
+        except Exception:
+            continue
         urls.add(u)
     for m in re.finditer(r'fetch\(\s*["\']([^"\']+)["\']', html, re.IGNORECASE):
         u = m.group(1)
@@ -171,7 +178,14 @@ def extract_spec_url_from_html(html: str, base: str) -> List[str]:
             u = urljoin(base, u)
         elif not u.startswith("http"):
             u = urljoin(base + "/", u)
-        urls.add(u)
+        try:
+            parsed = urlparse(u)
+            if parsed.hostname and base_host and parsed.hostname != base_host and not parsed.hostname.endswith("." + base_host):
+                continue
+        except Exception:
+            continue
+        if any(tok in u.lower() for tok in ("openapi","swagger","api-docs",".json",".yaml",".yml")):
+            urls.add(u)
     return list(urls)
 
 def parse_robots_for_paths(text: str, base: str) -> List[str]:
@@ -278,12 +292,10 @@ async def probe_wordlist(session: aiohttp.ClientSession, base: str, prefix: str,
         tasks.append(check_single_endpoint(session, url, sem, timeout, delay_range, retries))
     if not tasks:
         return []
-    gathered = []
     for fut in asyncio.as_completed(tasks):
         res = await fut
         if res:
             results.append(res)
-        gathered.append(1)
         if progress:
             progress.update(1)
     return results
@@ -617,7 +629,9 @@ async def run_recon(base: str, wordlist: List[str], depth: int, mode: str, ua: s
             oas_endpoints.append(f"{r['method']} {r['url']}")
     return results, oas_payloads, sorted(set(oas_endpoints)), parse_errors, parsed_specs_count
 
-def save_results(results: dict):
+def save_results(results: dict, outdir: str):
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
     rows = []
     for w in results.get("wordlist", []):
         rows.append({
@@ -659,23 +673,25 @@ def save_results(results: dict):
             "allow": "",
             "found": "subdomain-probe"
         })
-    with open("results.json", "w", encoding="utf-8") as f:
+    with open(out_path / "results.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     fieldnames = ["url","status","content_type","length","json_like","allow","found"]
-    with open("results.csv", "w", newline="", encoding="utf-8") as csvf:
+    with open(out_path / "results.csv", "w", newline="", encoding="utf-8") as csvf:
         writer = csv.DictWriter(csvf, fieldnames=fieldnames)
         writer.writeheader()
         for r in rows:
             writer.writerow(r)
 
-def save_oas_exports(oas_payloads: List[Dict[str,Any]], oas_endpoints: List[str]):
-    with open("oas_endpoints.txt", "w", encoding="utf-8") as f:
+def save_oas_exports(oas_payloads: List[Dict[str,Any]], oas_endpoints: List[str], outdir: str):
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    with open(out_path / "oas_endpoints.txt", "w", encoding="utf-8") as f:
         for line in oas_endpoints:
             f.write(line + "\n")
-    with open("oas_payloads.jsonl", "w", encoding="utf-8") as f:
+    with open(out_path / "oas_payloads.jsonl", "w", encoding="utf-8") as f:
         for r in oas_payloads:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    with open("oas_burp.csv", "w", newline="", encoding="utf-8") as csvf:
+    with open(out_path / "oas_burp.csv", "w", newline="", encoding="utf-8") as csvf:
         writer = csv.DictWriter(csvf, fieldnames=["method","url","headers","body"])
         writer.writeheader()
         for r in oas_payloads:
@@ -814,26 +830,13 @@ def main():
             scope_prefix=args.prefix,
         )
     )
-    save_results(results)
-    save_oas_exports(oas_payloads, oas_endpoints)
-    print("[+] Recon saved: results.json, results.csv")
-    print("[+] OpenAPI exports: oas_endpoints.txt, oas_payloads.jsonl, oas_burp.csv")
-    if parsed_specs_count == 0:
-        if parse_errors:
-            print("\nSummary: No valid OpenAPI specifications were parsed. Fallback to wordlist probing.")
-            print("OpenAPI parse errors (top 5):")
-            for msg in parse_errors[:5]:
-                print(f"  - {msg}")
-        else:
-            print("\nSummary: No OpenAPI specifications found. Fallback to wordlist probing.")
-    else:
-        if parse_errors:
-            print("\nSummary: Some OpenAPI specifications failed to parse. Others succeeded.")
-            print("OpenAPI parse errors (top 5):")
-            for msg in parse_errors[:5]:
-                print(f"  - {msg}")
-        else:
-            print("\nSummary: OpenAPI specifications parsed successfully.")
+    parsed_target = urlparse(normalize_url(args.target))
+    hostname = parsed_target.hostname or "results"
+    outdir = f"{hostname}_results"
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    save_results(results, outdir)
+    save_oas_exports(oas_payloads, oas_endpoints, outdir)
+    print(f"[+] Recon saved in folder: {outdir}")
     print("[+] Done.")
 
 if __name__ == "__main__":
